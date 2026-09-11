@@ -13,9 +13,10 @@
 // ============================================================================
 
 
-// Importamos Firestore y FieldValue.
+// Importamos Firestore, Authentication y FieldValue.
 const {
   db,
+  auth,
   FieldValue,
 } = require("../config/firebase");
 
@@ -148,17 +149,6 @@ async function getMyProfile(req, res) {
 //
 // ============================================================================
 
-// ============================================================================
-// ACTUALIZAR O CREAR MI PERFIL
-// ============================================================================
-//
-// PUT /api/users/me
-//
-// El documento de Firestore SIEMPRE tendrá como ID
-// el mismo UID de Firebase Authentication.
-//
-// ============================================================================
-
 async function updateMyProfile(req, res) {
 
   try {
@@ -168,18 +158,15 @@ async function updateMyProfile(req, res) {
     // USUARIO OBTENIDO DEL TOKEN
     // ========================================================================
 
-    const uid = req.user?.uid;
+    const uid =
+      req.user?.uid;
 
-    const correo = req.user?.email ?? null;
+    const correo =
+      req.user?.email ?? null;
 
 
     // ========================================================================
     // VALIDAR UID
-    // ========================================================================
-    //
-    // No permitimos crear documentos si el token
-    // no contiene un UID válido.
-    //
     // ========================================================================
 
     if (!uid) {
@@ -230,17 +217,6 @@ async function updateMyProfile(req, res) {
 
     // ========================================================================
     // REFERENCIA DEL DOCUMENTO
-    // ========================================================================
-    //
-    // MUY IMPORTANTE:
-    //
-    // .doc(uid)
-    //
-    // significa que Firestore NO genera un ID nuevo.
-    //
-    // El documento tendrá exactamente el UID
-    // de Firebase Authentication.
-    //
     // ========================================================================
 
     const usuarioRef =
@@ -325,10 +301,6 @@ async function updateMyProfile(req, res) {
     // ========================================================================
     // FECHA DE REGISTRO
     // ========================================================================
-    //
-    // Solamente se agrega cuando es un documento nuevo.
-    //
-    // ========================================================================
 
     if (!usuarioDoc.exists) {
 
@@ -339,14 +311,6 @@ async function updateMyProfile(req, res) {
 
     // ========================================================================
     // GUARDAR
-    // ========================================================================
-    //
-    // Si no existe:
-    // → lo crea.
-    //
-    // Si existe:
-    // → actualiza los campos sin borrar los demás.
-    //
     // ========================================================================
 
     await usuarioRef.set(
@@ -361,11 +325,6 @@ async function updateMyProfile(req, res) {
 
     // ========================================================================
     // COMPROBACIÓN
-    // ========================================================================
-    //
-    // Volvemos a leer el documento para verificar
-    // que realmente fue escrito.
-    //
     // ========================================================================
 
     const perfilGuardado =
@@ -382,11 +341,6 @@ async function updateMyProfile(req, res) {
 
     // ========================================================================
     // LOGS TEMPORALES
-    // ========================================================================
-    //
-    // Nos servirán para comprobar exactamente
-    // qué UID está enviando Android.
-    //
     // ========================================================================
 
     console.log(
@@ -430,7 +384,6 @@ async function updateMyProfile(req, res) {
           ? "Perfil actualizado correctamente."
           : "Perfil creado correctamente.",
 
-      // Lo mandamos temporalmente para comprobarlo.
       uid:
         uid,
 
@@ -460,6 +413,166 @@ async function updateMyProfile(req, res) {
   }
 }
 
+
+// ============================================================================
+// ELIMINAR MI CUENTA
+// ============================================================================
+//
+// DELETE /api/users/me
+//
+// Elimina:
+//
+// 1. El documento usuarios/{uid}
+//
+// 2. Todas las subcolecciones del usuario.
+//
+// Por ejemplo:
+//
+// usuarios/{uid}/medicamentos/*
+//
+// y cualquier otra subcolección que agreguemos después.
+//
+// 3. El usuario de Firebase Authentication.
+//
+// El UID se obtiene directamente del token.
+//
+// ============================================================================
+
+async function deleteMyAccount(req, res) {
+
+  try {
+
+
+    // ========================================================================
+    // UID DEL USUARIO AUTENTICADO
+    // ========================================================================
+
+    const uid =
+      req.user?.uid;
+
+
+    // ========================================================================
+    // VALIDAR UID
+    // ========================================================================
+
+    if (!uid) {
+
+      return res.status(401).json({
+
+        success: false,
+
+        message:
+          "No se pudo identificar al usuario autenticado.",
+
+      });
+    }
+
+
+    // ========================================================================
+    // REFERENCIA DEL USUARIO
+    // ========================================================================
+
+    const usuarioRef =
+      db
+        .collection("usuarios")
+        .doc(uid);
+
+
+    // ========================================================================
+    // ELIMINAR FIRESTORE DE FORMA RECURSIVA
+    // ========================================================================
+    //
+    // IMPORTANTE:
+    //
+    // Firestore NO elimina automáticamente las subcolecciones
+    // cuando borramos un documento.
+    //
+    // Por eso utilizamos recursiveDelete().
+    //
+    // Esto eliminará:
+    //
+    // usuarios/{uid}
+    //
+    // usuarios/{uid}/medicamentos/*
+    //
+    // usuarios/{uid}/cualquierOtraSubcoleccion/*
+    //
+    // ========================================================================
+
+    await db.recursiveDelete(
+      usuarioRef
+    );
+
+
+    // ========================================================================
+    // ELIMINAR FIREBASE AUTHENTICATION
+    // ========================================================================
+
+    await auth.deleteUser(
+      uid
+    );
+
+
+    // ========================================================================
+    // LOG
+    // ========================================================================
+
+    console.log(
+      "======================================"
+    );
+
+    console.log(
+      "CUENTA ELIMINADA"
+    );
+
+    console.log(
+      "UID:",
+      uid
+    );
+
+    console.log(
+      "======================================"
+    );
+
+
+    // ========================================================================
+    // RESPUESTA
+    // ========================================================================
+
+    return res.status(200).json({
+
+      success: true,
+
+      message:
+        "Cuenta eliminada correctamente.",
+
+    });
+
+
+  } catch (error) {
+
+
+    console.error(
+      "Error en deleteMyAccount:",
+      error
+    );
+
+
+    return res.status(500).json({
+
+      success: false,
+
+      message:
+        "Error al eliminar la cuenta.",
+
+      error:
+        error.message,
+
+    });
+  }
+}
+
+
 // ============================================================================
 // EXPORTACIONES
 // ============================================================================
@@ -469,5 +582,7 @@ module.exports = {
   getMyProfile,
 
   updateMyProfile,
+
+  deleteMyAccount,
 
 };

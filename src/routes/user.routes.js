@@ -5,6 +5,7 @@ const express = require("express");
 const {
   getMyProfile,
   updateMyProfile,
+  deleteMyAccount,
 } = require("../controllers/user.controller");
 
 // Importamos el middleware que verifica el token de Firebase.
@@ -26,5 +27,13 @@ router.get("/me", verifyFirebaseToken, getMyProfile);
  * PUT /api/users/me
  */
 router.put("/me", verifyFirebaseToken, updateMyProfile);
+
+/**
+ * Eliminar mi perfil.
+ * 
+ * DELETE /api/users/me
+ */
+
+router.delete("/me", verifyFirebaseToken, deleteMyAccount);
 
 module.exports = router;
