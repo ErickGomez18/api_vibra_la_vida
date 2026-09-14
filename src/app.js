@@ -3,12 +3,16 @@
 // ============================================================================
 
 
+// ============================================================================
+// IMPORTACIONES
+// ============================================================================
+
 // Importamos Express.
 const express =
   require("express");
 
 
-// Importamos CORS para permitir peticiones desde Android y Web.
+// Importamos CORS para permitir peticiones desde Android, iOS y Web.
 const cors =
   require("cors");
 
@@ -45,6 +49,22 @@ const bitacoraRoutes =
   require("./routes/bitacora.routes");
 
 
+const uploadsRoutes =
+  require("./routes/uploads.routes");
+
+
+const doctorRoutes =
+  require("./routes/doctor.routes");
+
+
+const calculadorasRoutes =
+  require("./routes/calculadoras.routes");
+
+
+const citasRoutes =
+  require("./routes/citas.routes");
+
+
 // ============================================================================
 // CREAR APLICACIÓN EXPRESS
 // ============================================================================
@@ -52,17 +72,10 @@ const bitacoraRoutes =
 const app =
   express();
 
-// ============================================================================
-// CREAR RUTA A CLOUDINARY
-// ============================================================================
-
-const uploadsRoutes =
-  require("./routes/uploads.routes");
 
 // ============================================================================
 // MIDDLEWARES GLOBALES
 // ============================================================================
-
 
 // Permite recibir JSON en el body.
 app.use(
@@ -70,7 +83,7 @@ app.use(
 );
 
 
-// Permite peticiones desde otros orígenes.
+// Permite peticiones desde Android, iOS y Web.
 app.use(
   cors()
 );
@@ -167,13 +180,6 @@ app.use(
   healthRoutes
 );
 
-// ---------------------------------------------------------------------------
-// CLOUDINARY (Guardado de imágenes)
-// ---------------------------------------------------------------------------
-app.use(
-  "/api/uploads",
-  uploadsRoutes
-);
 
 // ---------------------------------------------------------------------------
 // HISTORIAL GENERAL
@@ -181,8 +187,7 @@ app.use(
 //
 // GET /api/history
 //
-// Conservamos este módulo porque reúne:
-//
+// Reúne:
 // - perfil
 // - resultados
 // - Health Connect
@@ -217,14 +222,12 @@ app.use(
 // ---------------------------------------------------------------------------
 //
 // MEDICIONES:
-//
 // GET    /api/bitacora/registros
 // POST   /api/bitacora/registros
 // PUT    /api/bitacora/registros/:id
 // DELETE /api/bitacora/registros/:id
 //
 // LABORATORIOS:
-//
 // GET    /api/bitacora/laboratorios
 // POST   /api/bitacora/laboratorios
 // PUT    /api/bitacora/laboratorios/:id
@@ -238,14 +241,72 @@ app.use(
 );
 
 
+// ---------------------------------------------------------------------------
+// CLOUDINARY
+// ---------------------------------------------------------------------------
+//
+// POST /api/uploads/signature
+//
+// ---------------------------------------------------------------------------
+
+app.use(
+  "/api/uploads",
+  uploadsRoutes
+);
+
+
+// ---------------------------------------------------------------------------
+// PROFESIONALES / VERIFICACIÓN DE CÉDULA
+// ---------------------------------------------------------------------------
+//
+// POST /api/doctores/verificar-cedula
+//
+// ---------------------------------------------------------------------------
+
+app.use(
+  "/api/doctores",
+  doctorRoutes
+);
+
+
+// ---------------------------------------------------------------------------
+// CALCULADORAS
+// ---------------------------------------------------------------------------
+//
+// POST /api/calculadoras/imc
+// POST /api/calculadoras/calorias
+//
+// ---------------------------------------------------------------------------
+
+app.use(
+  "/api/calculadoras",
+  calculadorasRoutes
+);
+
+
+// ---------------------------------------------------------------------------
+// CITAS MÉDICAS
+// ---------------------------------------------------------------------------
+//
+// GET    /api/citas
+// POST   /api/citas
+// PUT    /api/citas/:id
+// DELETE /api/citas/:id
+//
+// ---------------------------------------------------------------------------
+
+app.use(
+  "/api/citas",
+  citasRoutes
+);
+
+
 // ============================================================================
 // RUTA NO ENCONTRADA
 // ============================================================================
 //
 // IMPORTANTE:
-//
-// Esta ruta siempre debe quedar AL FINAL,
-// después de todas las demás rutas.
+// Esta ruta siempre debe quedar AL FINAL.
 //
 // ============================================================================
 
