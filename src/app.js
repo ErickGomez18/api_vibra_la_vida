@@ -66,6 +66,22 @@ const citasRoutes =
 
 
 // ============================================================================
+// NUEVAS RUTAS
+// ============================================================================
+
+// Adherencia de medicamentos:
+// tomado / omitido
+const adherenciaMedicamentosRoutes =
+  require("./routes/adherenciaMedicamentos.routes");
+
+
+// Respuesta del paciente a las citas:
+// confirmar / reagendar / cancelar
+const citasPacienteRoutes =
+  require("./routes/citasPaciente.routes");
+
+
+// ============================================================================
 // CREAR APLICACIÓN EXPRESS
 // ============================================================================
 
@@ -218,6 +234,26 @@ app.use(
 
 
 // ---------------------------------------------------------------------------
+// ADHERENCIA DE MEDICAMENTOS
+// ---------------------------------------------------------------------------
+//
+// GET  /api/adherencia-medicamentos
+// POST /api/adherencia-medicamentos
+//
+// Permite registrar si el paciente reporta:
+//
+// - tomado
+// - omitido
+//
+// ---------------------------------------------------------------------------
+
+app.use(
+  "/api/adherencia-medicamentos",
+  adherenciaMedicamentosRoutes
+);
+
+
+// ---------------------------------------------------------------------------
 // BITÁCORA DE SALUD
 // ---------------------------------------------------------------------------
 //
@@ -298,6 +334,26 @@ app.use(
 app.use(
   "/api/citas",
   citasRoutes
+);
+
+
+// ---------------------------------------------------------------------------
+// RESPUESTAS DEL PACIENTE A CITAS
+// ---------------------------------------------------------------------------
+//
+// PATCH /api/citas/:id/respuesta-paciente
+//
+// Permite:
+//
+// - confirmar asistencia
+// - solicitar reagendación
+// - solicitar cancelación
+//
+// ---------------------------------------------------------------------------
+
+app.use(
+  "/api/citas",
+  citasPacienteRoutes
 );
 
 
