@@ -30,6 +30,10 @@ const {
 //
 // GET /api/users/me
 //
+// Requiere:
+//
+// Authorization: Bearer TOKEN
+//
 // ============================================================================
 
 async function getMyProfile(req, res) {
@@ -117,15 +121,19 @@ async function getMyProfile(req, res) {
 //
 // PUT /api/users/me
 //
-// Además de guardar en:
+// Si el documento ya existe:
 //
-// usuarios/{uid}
+// → actualiza solamente los campos enviados.
 //
-// también sincroniza:
+// Si el documento NO existe:
 //
-// directorio_pacientes/{uid}
+// → lo crea.
 //
-// De esta manera el profesional puede encontrar al paciente
+// Además:
+//
+// → sincroniza directorio_pacientes/{uid}
+//
+// Esto permite que el profesional encuentre al paciente
 // desde el panel web.
 //
 // ============================================================================
@@ -197,7 +205,7 @@ async function updateMyProfile(req, res) {
 
 
     // ========================================================================
-    // REFERENCIA DEL USUARIO
+    // REFERENCIA DEL DOCUMENTO EN USUARIOS
     // ========================================================================
 
     const usuarioRef =
@@ -217,13 +225,6 @@ async function updateMyProfile(req, res) {
     // ========================================================================
     // RECUPERAR DATOS EXISTENTES
     // ========================================================================
-    //
-    // Esto es importante porque Android puede mandar solamente
-    // edad, género, peso, etc.
-    //
-    // El nombre ya pudo haberse creado previamente durante el registro.
-    //
-    // ========================================================================
 
     const datosExistentes =
       usuarioDoc.exists
@@ -232,12 +233,39 @@ async function updateMyProfile(req, res) {
 
 
     // ========================================================================
+    // OBTENER USUARIO DESDE FIREBASE AUTHENTICATION
+    // ========================================================================
+    //
+    // Esto sirve para recuperar displayName directamente desde Auth.
+    //
+    // Es importante porque el token puede no incluir todavía el nombre.
+    //
+    // ========================================================================
+
+    const usuarioAuth =
+      await auth.getUser(
+        uid
+      );
+
+
+    // ========================================================================
     // NOMBRE COMPLETO
+    // ========================================================================
+    //
+    // Buscamos el nombre en este orden:
+    //
+    // 1. nombreCompleto ya guardado en Firestore
+    // 2. nombre ya guardado en Firestore
+    // 3. displayName de Firebase Authentication
+    // 4. name del token
+    // 5. cadena vacía
+    //
     // ========================================================================
 
     const nombreCompleto =
       datosExistentes.nombreCompleto ||
       datosExistentes.nombre ||
+      usuarioAuth.displayName ||
       req.user?.name ||
       "";
 
@@ -259,6 +287,10 @@ async function updateMyProfile(req, res) {
 
       correo:
         correo,
+
+
+      nombreCompleto:
+        nombreCompleto,
 
 
       // ----------------------------------------------------------------------
@@ -308,7 +340,11 @@ async function updateMyProfile(req, res) {
 
 
     // ========================================================================
-    // FECHA DE REGISTRO
+    // FECHA DE REGISTRO DEL USUARIO
+    // ========================================================================
+    //
+    // Solo se crea si el documento todavía no existe.
+    //
     // ========================================================================
 
     if (!usuarioDoc.exists) {
@@ -319,7 +355,7 @@ async function updateMyProfile(req, res) {
 
 
     // ========================================================================
-    // GUARDAR USUARIO
+    // GUARDAR / ACTUALIZAR USUARIO
     // ========================================================================
 
     await usuarioRef.set(
@@ -333,15 +369,12 @@ async function updateMyProfile(req, res) {
 
 
     // ========================================================================
-    // SINCRONIZAR DIRECTORIO DE PACIENTES
+    // DIRECTORIO DE PACIENTES
     // ========================================================================
     //
-    // Esta colección es utilizada por el panel web del profesional
-    // para buscar pacientes.
+    // Esta colección es utilizada por el panel web del profesional.
     //
-    // IMPORTANTE:
-    //
-    // Usamos el MISMO UID como ID del documento.
+    // Usamos el MISMO UID:
     //
     // usuarios/{uid}
     //
@@ -369,9 +402,18 @@ async function updateMyProfile(req, res) {
 
     const datosDirectorio = {
 
+
+      // ----------------------------------------------------------------------
+      // IDENTIFICADOR
+      // ----------------------------------------------------------------------
+
       uid:
         uid,
 
+
+      // ----------------------------------------------------------------------
+      // NOMBRE
+      // ----------------------------------------------------------------------
 
       nombreCompleto:
         nombreCompleto,
@@ -381,8 +423,8 @@ async function updateMyProfile(req, res) {
       // NOMBRE PARA BÚSQUEDA
       // ----------------------------------------------------------------------
       //
-      // Lo guardamos en minúsculas para facilitar búsquedas
-      // desde el panel web.
+      // Lo guardamos en minúsculas para facilitar las búsquedas
+      // realizadas desde el panel web.
       //
       // ----------------------------------------------------------------------
 
@@ -403,12 +445,10 @@ async function updateMyProfile(req, res) {
 
 
     // ========================================================================
-    // FECHA DE REGISTRO EN DIRECTORIO
+    // FECHA DE REGISTRO EN EL DIRECTORIO
     // ========================================================================
     //
-    // Solo se crea la primera vez.
-    //
-    // No queremos que cambie cada vez que el usuario edite su perfil.
+    // Solo se guarda una vez.
     //
     // ========================================================================
 
@@ -420,7 +460,7 @@ async function updateMyProfile(req, res) {
 
 
     // ========================================================================
-    // GUARDAR EN DIRECTORIO
+    // GUARDAR / ACTUALIZAR DIRECTORIO
     // ========================================================================
 
     await directorioRef.set(
@@ -469,6 +509,11 @@ async function updateMyProfile(req, res) {
     console.log(
       "Correo:",
       correo
+    );
+
+    console.log(
+      "Nombre:",
+      nombreCompleto
     );
 
     console.log(
@@ -539,17 +584,18 @@ async function updateMyProfile(req, res) {
 //
 // 1. usuarios/{uid}
 //
-// 2. Todas las subcolecciones:
+// 2. Todas las subcolecciones del usuario.
 //
-//    medicamentos
-//    laboratorios
-//    registros
-//    adherenciaMedicamentos
-//    etc.
+// Ejemplos:
+//
+// usuarios/{uid}/medicamentos
+// usuarios/{uid}/adherenciaMedicamentos
+// usuarios/{uid}/laboratorios
+// etc.
 //
 // 3. directorio_pacientes/{uid}
 //
-// 4. Firebase Authentication.
+// 4. Usuario de Firebase Authentication.
 //
 // ============================================================================
 
@@ -559,7 +605,7 @@ async function deleteMyAccount(req, res) {
 
 
     // ========================================================================
-    // UID DEL USUARIO
+    // UID DEL USUARIO AUTENTICADO
     // ========================================================================
 
     const uid =
@@ -604,7 +650,15 @@ async function deleteMyAccount(req, res) {
 
 
     // ========================================================================
-    // ELIMINAR USUARIO Y SUBCOLECCIONES
+    // ELIMINAR FIRESTORE DE FORMA RECURSIVA
+    // ========================================================================
+    //
+    // Esto elimina:
+    //
+    // usuarios/{uid}
+    //
+    // y todas sus subcolecciones.
+    //
     // ========================================================================
 
     await db.recursiveDelete(
