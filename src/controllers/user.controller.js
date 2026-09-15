@@ -2,21 +2,38 @@
 // USER CONTROLLER
 // ============================================================================
 //
-// Este controlador maneja:
+// Maneja:
 //
-// 1. El perfil del usuario autenticado.
-// 2. La sincronización con directorio_pacientes.
-// 3. La eliminación de la cuenta.
+// 1. Perfil del usuario autenticado.
+// 2. Sistema multirrol.
+// 3. Sincronización con directorio_pacientes.
+// 4. Eliminación de la cuenta.
 //
-// El UID NO viene del body.
+// REGLA IMPORTANTE:
 //
-// El UID se obtiene del token de Firebase mediante
-// auth.middleware.js.
+// Toda persona que use la APP MÓVIL utiliza la aplicación como PACIENTE.
+//
+// Por ello:
+//
+// PUT /api/users/me
+//
+// siempre garantiza que el usuario tenga:
+//
+// roles: ["paciente"]
+//
+// Si ya era especialista:
+//
+// roles: ["especialista", "paciente"]
+//
+// NO se elimina el rol profesional.
 //
 // ============================================================================
 
 
-// Importamos Firestore, Authentication y FieldValue.
+// ============================================================================
+// FIREBASE
+// ============================================================================
+
 const {
   db,
   auth,
@@ -25,33 +42,51 @@ const {
 
 
 // ============================================================================
+// ROLES
+// ============================================================================
+
+const {
+  normalizarRoles,
+  agregarRol,
+  obtenerRolLegacy,
+} = require("../utils/roles.utils");
+
+
+// ============================================================================
 // OBTENER MI PERFIL
 // ============================================================================
 //
 // GET /api/users/me
 //
-// Requiere:
-//
-// Authorization: Bearer TOKEN
-//
 // ============================================================================
 
-async function getMyProfile(req, res) {
+async function getMyProfile(
+  req,
+  res
+) {
 
   try {
 
-
-    // ========================================================================
-    // UID DEL USUARIO AUTENTICADO
-    // ========================================================================
-
     const uid =
-      req.user.uid;
+      req.user?.uid;
 
 
-    // ========================================================================
-    // BUSCAR USUARIO
-    // ========================================================================
+    if (
+      !uid
+    ) {
+
+      return res
+        .status(401)
+        .json({
+
+          success:
+            false,
+
+          message:
+            "No se pudo identificar al usuario autenticado.",
+        });
+    }
+
 
     const userDoc =
       await db
@@ -60,39 +95,62 @@ async function getMyProfile(req, res) {
         .get();
 
 
-    // ========================================================================
-    // PERFIL NO ENCONTRADO
-    // ========================================================================
+    if (
+      !userDoc.exists
+    ) {
 
-    if (!userDoc.exists) {
+      return res
+        .status(404)
+        .json({
 
-      return res.status(404).json({
+          success:
+            false,
 
-        success: false,
-
-        message:
-          "Perfil no encontrado.",
-
-      });
+          message:
+            "Perfil no encontrado.",
+        });
     }
 
 
+    const datos =
+      userDoc.data();
+
+
     // ========================================================================
-    // PERFIL ENCONTRADO
+    // NORMALIZAR ROLES AL LEER
     // ========================================================================
+    //
+    // Esto permite seguir funcionando con usuarios antiguos
+    // que todavía tengan solamente "rol".
+    //
+    // ========================================================================
+
+    const roles =
+      normalizarRoles(
+
+        datos.roles,
+
+        datos.rol
+      );
+
 
     return res.json({
 
-      success: true,
+      success:
+        true,
 
-      user:
-        userDoc.data(),
+      user: {
 
+        ...datos,
+
+        roles,
+      },
     });
 
 
-  } catch (error) {
-
+  } catch (
+    error
+  ) {
 
     console.error(
       "Error en getMyProfile:",
@@ -100,17 +158,19 @@ async function getMyProfile(req, res) {
     );
 
 
-    return res.status(500).json({
+    return res
+      .status(500)
+      .json({
 
-      success: false,
+        success:
+          false,
 
-      message:
-        "Error al obtener el perfil.",
+        message:
+          "Error al obtener el perfil.",
 
-      error:
-        error.message,
-
-    });
+        error:
+          error.message,
+      });
   }
 }
 
@@ -121,61 +181,63 @@ async function getMyProfile(req, res) {
 //
 // PUT /api/users/me
 //
-// Si el documento ya existe:
+// Esta ruta es utilizada por la app móvil.
 //
-// → actualiza solamente los campos enviados.
+// Por lo tanto:
 //
-// Si el documento NO existe:
-//
-// → lo crea.
-//
-// Además:
-//
-// → sincroniza directorio_pacientes/{uid}
-//
-// Esto permite que el profesional encuentre al paciente
-// desde el panel web.
+// - siempre agrega el rol "paciente"
+// - nunca elimina "especialista"
+// - crea/actualiza directorio_pacientes/{uid}
 //
 // ============================================================================
 
-async function updateMyProfile(req, res) {
+async function updateMyProfile(
+  req,
+  res
+) {
 
   try {
 
-
     // ========================================================================
-    // USUARIO OBTENIDO DEL TOKEN
+    // IDENTIDAD DEL TOKEN
     // ========================================================================
 
     const uid =
       req.user?.uid;
 
-    const correo =
+
+    const correoToken =
       req.user?.email ?? null;
 
 
-    // ========================================================================
-    // VALIDAR UID
-    // ========================================================================
+    if (
+      !uid
+    ) {
 
-    if (!uid) {
+      return res
+        .status(401)
+        .json({
 
-      return res.status(401).json({
+          success:
+            false,
 
-        success: false,
-
-        message:
-          "No se pudo identificar al usuario autenticado.",
-
-      });
+          message:
+            "No se pudo identificar al usuario autenticado.",
+        });
     }
 
 
     // ========================================================================
-    // DATOS RECIBIDOS DESDE ANDROID
+    // BODY
     // ========================================================================
 
+    const body =
+      req.body || {};
+
+
     const {
+
+      nombreCompleto: nombreRecibido,
 
       edad,
 
@@ -191,21 +253,11 @@ async function updateMyProfile(req, res) {
 
       otraEnfermedadCronica,
 
-    } = req.body;
+    } = body;
 
 
     // ========================================================================
-    // VALIDAR ENFERMEDADES CRÓNICAS
-    // ========================================================================
-
-    const enfermedadesFinales =
-      Array.isArray(enfermedadesCronicas)
-        ? enfermedadesCronicas
-        : [];
-
-
-    // ========================================================================
-    // REFERENCIA DEL DOCUMENTO EN USUARIOS
+    // DOCUMENTO ACTUAL
     // ========================================================================
 
     const usuarioRef =
@@ -214,17 +266,9 @@ async function updateMyProfile(req, res) {
         .doc(uid);
 
 
-    // ========================================================================
-    // COMPROBAR SI YA EXISTE
-    // ========================================================================
-
     const usuarioDoc =
       await usuarioRef.get();
 
-
-    // ========================================================================
-    // RECUPERAR DATOS EXISTENTES
-    // ========================================================================
 
     const datosExistentes =
       usuarioDoc.exists
@@ -233,13 +277,7 @@ async function updateMyProfile(req, res) {
 
 
     // ========================================================================
-    // OBTENER USUARIO DESDE FIREBASE AUTHENTICATION
-    // ========================================================================
-    //
-    // Esto sirve para recuperar displayName directamente desde Auth.
-    //
-    // Es importante porque el token puede no incluir todavía el nombre.
-    //
+    // FIREBASE AUTH
     // ========================================================================
 
     const usuarioAuth =
@@ -249,105 +287,210 @@ async function updateMyProfile(req, res) {
 
 
     // ========================================================================
-    // NOMBRE COMPLETO
+    // CORREO
     // ========================================================================
-    //
-    // Buscamos el nombre en este orden:
-    //
-    // 1. nombreCompleto ya guardado en Firestore
-    // 2. nombre ya guardado en Firestore
-    // 3. displayName de Firebase Authentication
-    // 4. name del token
-    // 5. cadena vacía
-    //
+
+    const correo =
+      correoToken ||
+      usuarioAuth.email ||
+      datosExistentes.correo ||
+      null;
+
+
+    // ========================================================================
+    // NOMBRE
     // ========================================================================
 
     const nombreCompleto =
-      datosExistentes.nombreCompleto ||
-      datosExistentes.nombre ||
-      usuarioAuth.displayName ||
-      req.user?.name ||
-      "";
+      (
+        nombreRecibido ||
+        datosExistentes.nombreCompleto ||
+        datosExistentes.nombre ||
+        usuarioAuth.displayName ||
+        req.user?.name ||
+        ""
+      )
+        .trim();
 
 
     // ========================================================================
-    // DATOS A GUARDAR EN USUARIOS
+    // ROLES EXISTENTES
+    // ========================================================================
+    //
+    // Soporta tanto:
+    //
+    // roles: [...]
+    //
+    // como el campo viejo:
+    //
+    // rol: "usuario"
+    // rol: "especialista"
+    //
+    // ========================================================================
+
+    const rolesExistentes =
+      normalizarRoles(
+
+        datosExistentes.roles,
+
+        datosExistentes.rol
+      );
+
+
+    // ========================================================================
+    // ANDROID = USO COMO PACIENTE
+    // ========================================================================
+    //
+    // Si ya era especialista:
+    //
+    // ["especialista"]
+    //
+    // se convierte en:
+    //
+    // ["especialista", "paciente"]
+    //
+    // ========================================================================
+
+    const rolesFinales =
+      agregarRol(
+
+        rolesExistentes,
+
+        "paciente"
+      );
+
+
+    // ========================================================================
+    // CAMPO LEGACY
+    // ========================================================================
+    //
+    // Se conserva temporalmente para no romper el login web actual.
+    //
+    // Especialista + paciente:
+    //
+    // rol = "especialista"
+    //
+    // roles = ["especialista", "paciente"]
+    //
+    // ========================================================================
+
+    const rolLegacy =
+      obtenerRolLegacy(
+        rolesFinales
+      );
+
+
+    // ========================================================================
+    // ENFERMEDADES
+    // ========================================================================
+
+    const enfermedadesFinales =
+      Array.isArray(
+        enfermedadesCronicas
+      )
+        ? enfermedadesCronicas
+        : (
+            Array.isArray(
+              datosExistentes.enfermedadesCronicas
+            )
+              ? datosExistentes.enfermedadesCronicas
+              : []
+          );
+
+
+    // ========================================================================
+    // DATOS DEL USUARIO
     // ========================================================================
 
     const datosUsuario = {
-
 
       // ----------------------------------------------------------------------
       // IDENTIDAD
       // ----------------------------------------------------------------------
 
-      uid:
-        uid,
+      uid,
 
+      correo,
 
-      correo:
-        correo,
-
-
-      nombreCompleto:
-        nombreCompleto,
+      nombreCompleto,
 
 
       // ----------------------------------------------------------------------
-      // PERFIL
+      // ROLES
+      // ----------------------------------------------------------------------
+
+      roles:
+        rolesFinales,
+
+
+      // ----------------------------------------------------------------------
+      // COMPATIBILIDAD TEMPORAL
+      // ----------------------------------------------------------------------
+
+      rol:
+        rolLegacy,
+
+
+      // ----------------------------------------------------------------------
+      // PERFIL DE PACIENTE
       // ----------------------------------------------------------------------
 
       edad:
-        edad ?? null,
+        edad ??
+        datosExistentes.edad ??
+        null,
 
 
       genero:
-        genero ?? null,
+        genero ??
+        datosExistentes.genero ??
+        null,
 
 
       peso:
-        peso ?? null,
+        peso ??
+        datosExistentes.peso ??
+        null,
 
 
       estatura:
-        estatura ?? null,
+        estatura ??
+        datosExistentes.estatura ??
+        null,
 
 
       nivelActividad:
-        nivelActividad ?? null,
+        nivelActividad ??
+        datosExistentes.nivelActividad ??
+        null,
 
-
-      // ----------------------------------------------------------------------
-      // ANTECEDENTES
-      // ----------------------------------------------------------------------
 
       enfermedadesCronicas:
         enfermedadesFinales,
 
 
       otraEnfermedadCronica:
-        otraEnfermedadCronica ?? "",
+        otraEnfermedadCronica ??
+        datosExistentes.otraEnfermedadCronica ??
+        "",
 
 
       // ----------------------------------------------------------------------
-      // FECHA DE ACTUALIZACIÓN
+      // FECHA
       // ----------------------------------------------------------------------
 
       actualizadoEn:
         FieldValue.serverTimestamp(),
-
     };
 
 
     // ========================================================================
-    // FECHA DE REGISTRO DEL USUARIO
-    // ========================================================================
-    //
-    // Solo se crea si el documento todavía no existe.
-    //
+    // FECHA DE REGISTRO
     // ========================================================================
 
-    if (!usuarioDoc.exists) {
+    if (
+      !usuarioDoc.exists
+    ) {
 
       datosUsuario.fechaRegistro =
         FieldValue.serverTimestamp();
@@ -355,7 +498,7 @@ async function updateMyProfile(req, res) {
 
 
     // ========================================================================
-    // GUARDAR / ACTUALIZAR USUARIO
+    // GUARDAR USUARIO
     // ========================================================================
 
     await usuarioRef.set(
@@ -363,7 +506,8 @@ async function updateMyProfile(req, res) {
       datosUsuario,
 
       {
-        merge: true,
+        merge:
+          true,
       }
     );
 
@@ -372,13 +516,10 @@ async function updateMyProfile(req, res) {
     // DIRECTORIO DE PACIENTES
     // ========================================================================
     //
-    // Esta colección es utilizada por el panel web del profesional.
+    // Como esta ruta corresponde al uso de la APP móvil,
+    // la persona está utilizando Vibra la vida como paciente.
     //
-    // Usamos el MISMO UID:
-    //
-    // usuarios/{uid}
-    //
-    // directorio_pacientes/{uid}
+    // Por eso se agrega al directorio.
     //
     // ========================================================================
 
@@ -388,109 +529,47 @@ async function updateMyProfile(req, res) {
         .doc(uid);
 
 
-    // ========================================================================
-    // COMPROBAR SI YA EXISTE EN EL DIRECTORIO
-    // ========================================================================
-
     const directorioDoc =
       await directorioRef.get();
 
 
-    // ========================================================================
-    // DATOS DEL DIRECTORIO
-    // ========================================================================
-
     const datosDirectorio = {
 
+      uid,
 
-      // ----------------------------------------------------------------------
-      // IDENTIFICADOR
-      // ----------------------------------------------------------------------
-
-      uid:
-        uid,
-
-
-      // ----------------------------------------------------------------------
-      // NOMBRE
-      // ----------------------------------------------------------------------
-
-      nombreCompleto:
-        nombreCompleto,
-
-
-      // ----------------------------------------------------------------------
-      // NOMBRE PARA BÚSQUEDA
-      // ----------------------------------------------------------------------
-      //
-      // Lo guardamos en minúsculas para facilitar las búsquedas
-      // realizadas desde el panel web.
-      //
-      // ----------------------------------------------------------------------
+      nombreCompleto,
 
       nombreBusqueda:
         nombreCompleto
-          .trim()
           .toLowerCase(),
-
-
-      // ----------------------------------------------------------------------
-      // FECHA DE ACTUALIZACIÓN
-      // ----------------------------------------------------------------------
 
       actualizadoEn:
         FieldValue.serverTimestamp(),
-
     };
 
 
-    // ========================================================================
-    // FECHA DE REGISTRO EN EL DIRECTORIO
-    // ========================================================================
-    //
-    // Solo se guarda una vez.
-    //
-    // ========================================================================
-
-    if (!directorioDoc.exists) {
+    if (
+      !directorioDoc.exists
+    ) {
 
       datosDirectorio.fechaRegistro =
         FieldValue.serverTimestamp();
     }
 
 
-    // ========================================================================
-    // GUARDAR / ACTUALIZAR DIRECTORIO
-    // ========================================================================
-
     await directorioRef.set(
 
       datosDirectorio,
 
       {
-        merge: true,
+        merge:
+          true,
       }
     );
 
 
     // ========================================================================
-    // COMPROBACIÓN
-    // ========================================================================
-
-    const perfilGuardado =
-      await usuarioRef.get();
-
-
-    if (!perfilGuardado.exists) {
-
-      throw new Error(
-        "El perfil no pudo ser creado en Firestore."
-      );
-    }
-
-
-    // ========================================================================
-    // LOGS
+    // RESPUESTA
     // ========================================================================
 
     console.log(
@@ -498,7 +577,7 @@ async function updateMyProfile(req, res) {
     );
 
     console.log(
-      "PERFIL GUARDADO Y SINCRONIZADO"
+      "PERFIL DE PACIENTE SINCRONIZADO"
     );
 
     console.log(
@@ -507,23 +586,18 @@ async function updateMyProfile(req, res) {
     );
 
     console.log(
-      "Correo:",
-      correo
-    );
-
-    console.log(
       "Nombre:",
       nombreCompleto
     );
 
     console.log(
-      "Usuario:",
-      `usuarios/${uid}`
+      "Roles:",
+      rolesFinales
     );
 
     console.log(
-      "Directorio:",
-      `directorio_pacientes/${uid}`
+      "Rol legacy:",
+      rolLegacy
     );
 
     console.log(
@@ -531,27 +605,28 @@ async function updateMyProfile(req, res) {
     );
 
 
-    // ========================================================================
-    // RESPUESTA
-    // ========================================================================
+    return res
+      .status(200)
+      .json({
 
-    return res.status(200).json({
+        success:
+          true,
 
-      success: true,
+        message:
+          usuarioDoc.exists
+            ? "Perfil actualizado correctamente."
+            : "Perfil creado correctamente.",
 
-      message:
-        usuarioDoc.exists
-          ? "Perfil actualizado correctamente."
-          : "Perfil creado correctamente.",
-
-      uid:
         uid,
 
-    });
+        roles:
+          rolesFinales,
+      });
 
 
-  } catch (error) {
-
+  } catch (
+    error
+  ) {
 
     console.error(
       "Error en updateMyProfile:",
@@ -559,17 +634,19 @@ async function updateMyProfile(req, res) {
     );
 
 
-    return res.status(500).json({
+    return res
+      .status(500)
+      .json({
 
-      success: false,
+        success:
+          false,
 
-      message:
-        "Error al guardar el perfil.",
+        message:
+          "Error al guardar el perfil.",
 
-      error:
-        error.message,
-
-    });
+        error:
+          error.message,
+      });
   }
 }
 
@@ -580,57 +657,57 @@ async function updateMyProfile(req, res) {
 //
 // DELETE /api/users/me
 //
-// Elimina:
+// IMPORTANTE CON EL NUEVO SISTEMA MULTIRROL:
 //
-// 1. usuarios/{uid}
+// Esta función todavía elimina la CUENTA COMPLETA:
 //
-// 2. Todas las subcolecciones del usuario.
+// - perfil paciente
+// - subcolecciones
+// - directorio_pacientes
+// - Firebase Authentication
 //
-// Ejemplos:
+// Si una persona tiene:
 //
-// usuarios/{uid}/medicamentos
-// usuarios/{uid}/adherenciaMedicamentos
-// usuarios/{uid}/laboratorios
-// etc.
+// roles = ["paciente", "especialista"]
 //
-// 3. directorio_pacientes/{uid}
+// eliminar toda la cuenta también cerraría su acceso profesional.
 //
-// 4. Usuario de Firebase Authentication.
+// Por eso, antes de permitir borrado total a una cuenta multirrol,
+// bloqueamos la operación y pedimos separar la eliminación del
+// perfil paciente de la eliminación total de la cuenta.
 //
 // ============================================================================
 
-async function deleteMyAccount(req, res) {
+async function deleteMyAccount(
+  req,
+  res
+) {
 
   try {
-
-
-    // ========================================================================
-    // UID DEL USUARIO AUTENTICADO
-    // ========================================================================
 
     const uid =
       req.user?.uid;
 
 
-    // ========================================================================
-    // VALIDAR UID
-    // ========================================================================
+    if (
+      !uid
+    ) {
 
-    if (!uid) {
+      return res
+        .status(401)
+        .json({
 
-      return res.status(401).json({
+          success:
+            false,
 
-        success: false,
-
-        message:
-          "No se pudo identificar al usuario autenticado.",
-
-      });
+          message:
+            "No se pudo identificar al usuario autenticado.",
+        });
     }
 
 
     // ========================================================================
-    // REFERENCIA DEL USUARIO
+    // LEER ROLES
     // ========================================================================
 
     const usuarioRef =
@@ -639,8 +716,57 @@ async function deleteMyAccount(req, res) {
         .doc(uid);
 
 
+    const usuarioDoc =
+      await usuarioRef.get();
+
+
+    const datosUsuario =
+      usuarioDoc.exists
+        ? usuarioDoc.data()
+        : {};
+
+
+    const roles =
+      normalizarRoles(
+
+        datosUsuario.roles,
+
+        datosUsuario.rol
+      );
+
+
     // ========================================================================
-    // REFERENCIA DEL DIRECTORIO
+    // PROTEGER CUENTAS MULTIRROL
+    // ========================================================================
+    //
+    // Evitamos que un especialista borre por accidente
+    // también su acceso profesional desde la app paciente.
+    //
+    // ========================================================================
+
+    if (
+      roles.includes("especialista") &&
+      roles.includes("paciente")
+    ) {
+
+      return res
+        .status(409)
+        .json({
+
+          success:
+            false,
+
+          code:
+            "MULTI_ROLE_ACCOUNT",
+
+          message:
+            "Esta cuenta también tiene acceso profesional. No puede eliminarse completamente desde la app de paciente.",
+        });
+    }
+
+
+    // ========================================================================
+    // DIRECTORIO
     // ========================================================================
 
     const directorioRef =
@@ -650,15 +776,7 @@ async function deleteMyAccount(req, res) {
 
 
     // ========================================================================
-    // ELIMINAR FIRESTORE DE FORMA RECURSIVA
-    // ========================================================================
-    //
-    // Esto elimina:
-    //
-    // usuarios/{uid}
-    //
-    // y todas sus subcolecciones.
-    //
+    // ELIMINAR PERFIL Y SUBCOLECCIONES
     // ========================================================================
 
     await db.recursiveDelete(
@@ -667,24 +785,20 @@ async function deleteMyAccount(req, res) {
 
 
     // ========================================================================
-    // ELIMINAR DEL DIRECTORIO DE PACIENTES
+    // ELIMINAR DEL DIRECTORIO
     // ========================================================================
 
     await directorioRef.delete();
 
 
     // ========================================================================
-    // ELIMINAR FIREBASE AUTHENTICATION
+    // ELIMINAR AUTH
     // ========================================================================
 
     await auth.deleteUser(
       uid
     );
 
-
-    // ========================================================================
-    // LOG
-    // ========================================================================
 
     console.log(
       "======================================"
@@ -700,36 +814,25 @@ async function deleteMyAccount(req, res) {
     );
 
     console.log(
-      "Usuario eliminado:",
-      `usuarios/${uid}`
-    );
-
-    console.log(
-      "Directorio eliminado:",
-      `directorio_pacientes/${uid}`
-    );
-
-    console.log(
       "======================================"
     );
 
 
-    // ========================================================================
-    // RESPUESTA
-    // ========================================================================
+    return res
+      .status(200)
+      .json({
 
-    return res.status(200).json({
+        success:
+          true,
 
-      success: true,
-
-      message:
-        "Cuenta eliminada correctamente.",
-
-    });
+        message:
+          "Cuenta eliminada correctamente.",
+      });
 
 
-  } catch (error) {
-
+  } catch (
+    error
+  ) {
 
     console.error(
       "Error en deleteMyAccount:",
@@ -737,17 +840,19 @@ async function deleteMyAccount(req, res) {
     );
 
 
-    return res.status(500).json({
+    return res
+      .status(500)
+      .json({
 
-      success: false,
+        success:
+          false,
 
-      message:
-        "Error al eliminar la cuenta.",
+        message:
+          "Error al eliminar la cuenta.",
 
-      error:
-        error.message,
-
-    });
+        error:
+          error.message,
+      });
   }
 }
 
@@ -763,5 +868,4 @@ module.exports = {
   updateMyProfile,
 
   deleteMyAccount,
-
 };
