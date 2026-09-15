@@ -2,8 +2,11 @@
 // USER CONTROLLER
 // ============================================================================
 //
-// Este controlador maneja la información del perfil
-// del usuario autenticado.
+// Este controlador maneja:
+//
+// 1. El perfil del usuario autenticado.
+// 2. La sincronización con directorio_pacientes.
+// 3. La eliminación de la cuenta.
 //
 // El UID NO viene del body.
 //
@@ -26,10 +29,6 @@ const {
 // ============================================================================
 //
 // GET /api/users/me
-//
-// Requiere:
-//
-// Authorization: Bearer TOKEN
 //
 // ============================================================================
 
@@ -82,7 +81,8 @@ async function getMyProfile(req, res) {
 
       success: true,
 
-      user: userDoc.data(),
+      user:
+        userDoc.data(),
 
     });
 
@@ -117,35 +117,16 @@ async function getMyProfile(req, res) {
 //
 // PUT /api/users/me
 //
-// Si el documento ya existe:
+// Además de guardar en:
 //
-// → actualiza solamente los campos enviados.
+// usuarios/{uid}
 //
-// Si el documento NO existe:
+// también sincroniza:
 //
-// → lo crea.
+// directorio_pacientes/{uid}
 //
-// Esto es importante porque Android crea primero
-// al usuario dentro de Firebase Authentication,
-// pero eso NO crea automáticamente un documento
-// dentro de Firestore.
-//
-// ============================================================================
-//
-// Body esperado:
-//
-// {
-//   "edad": "19",
-//   "genero": "Mujer",
-//   "peso": "62",
-//   "estatura": "1.65",
-//   "nivelActividad": "Moderado",
-//   "enfermedadesCronicas": [
-//       "Diabetes mellitus",
-//       "Hipertensión arterial"
-//   ],
-//   "otraEnfermedadCronica": ""
-// }
+// De esta manera el profesional puede encontrar al paciente
+// desde el panel web.
 //
 // ============================================================================
 
@@ -216,7 +197,7 @@ async function updateMyProfile(req, res) {
 
 
     // ========================================================================
-    // REFERENCIA DEL DOCUMENTO
+    // REFERENCIA DEL USUARIO
     // ========================================================================
 
     const usuarioRef =
@@ -234,7 +215,35 @@ async function updateMyProfile(req, res) {
 
 
     // ========================================================================
-    // DATOS A GUARDAR
+    // RECUPERAR DATOS EXISTENTES
+    // ========================================================================
+    //
+    // Esto es importante porque Android puede mandar solamente
+    // edad, género, peso, etc.
+    //
+    // El nombre ya pudo haberse creado previamente durante el registro.
+    //
+    // ========================================================================
+
+    const datosExistentes =
+      usuarioDoc.exists
+        ? usuarioDoc.data()
+        : {};
+
+
+    // ========================================================================
+    // NOMBRE COMPLETO
+    // ========================================================================
+
+    const nombreCompleto =
+      datosExistentes.nombreCompleto ||
+      datosExistentes.nombre ||
+      req.user?.name ||
+      "";
+
+
+    // ========================================================================
+    // DATOS A GUARDAR EN USUARIOS
     // ========================================================================
 
     const datosUsuario = {
@@ -289,7 +298,7 @@ async function updateMyProfile(req, res) {
 
 
       // ----------------------------------------------------------------------
-      // FECHA
+      // FECHA DE ACTUALIZACIÓN
       // ----------------------------------------------------------------------
 
       actualizadoEn:
@@ -310,12 +319,113 @@ async function updateMyProfile(req, res) {
 
 
     // ========================================================================
-    // GUARDAR
+    // GUARDAR USUARIO
     // ========================================================================
 
     await usuarioRef.set(
 
       datosUsuario,
+
+      {
+        merge: true,
+      }
+    );
+
+
+    // ========================================================================
+    // SINCRONIZAR DIRECTORIO DE PACIENTES
+    // ========================================================================
+    //
+    // Esta colección es utilizada por el panel web del profesional
+    // para buscar pacientes.
+    //
+    // IMPORTANTE:
+    //
+    // Usamos el MISMO UID como ID del documento.
+    //
+    // usuarios/{uid}
+    //
+    // directorio_pacientes/{uid}
+    //
+    // ========================================================================
+
+    const directorioRef =
+      db
+        .collection("directorio_pacientes")
+        .doc(uid);
+
+
+    // ========================================================================
+    // COMPROBAR SI YA EXISTE EN EL DIRECTORIO
+    // ========================================================================
+
+    const directorioDoc =
+      await directorioRef.get();
+
+
+    // ========================================================================
+    // DATOS DEL DIRECTORIO
+    // ========================================================================
+
+    const datosDirectorio = {
+
+      uid:
+        uid,
+
+
+      nombreCompleto:
+        nombreCompleto,
+
+
+      // ----------------------------------------------------------------------
+      // NOMBRE PARA BÚSQUEDA
+      // ----------------------------------------------------------------------
+      //
+      // Lo guardamos en minúsculas para facilitar búsquedas
+      // desde el panel web.
+      //
+      // ----------------------------------------------------------------------
+
+      nombreBusqueda:
+        nombreCompleto
+          .trim()
+          .toLowerCase(),
+
+
+      // ----------------------------------------------------------------------
+      // FECHA DE ACTUALIZACIÓN
+      // ----------------------------------------------------------------------
+
+      actualizadoEn:
+        FieldValue.serverTimestamp(),
+
+    };
+
+
+    // ========================================================================
+    // FECHA DE REGISTRO EN DIRECTORIO
+    // ========================================================================
+    //
+    // Solo se crea la primera vez.
+    //
+    // No queremos que cambie cada vez que el usuario edite su perfil.
+    //
+    // ========================================================================
+
+    if (!directorioDoc.exists) {
+
+      datosDirectorio.fechaRegistro =
+        FieldValue.serverTimestamp();
+    }
+
+
+    // ========================================================================
+    // GUARDAR EN DIRECTORIO
+    // ========================================================================
+
+    await directorioRef.set(
+
+      datosDirectorio,
 
       {
         merge: true,
@@ -340,7 +450,7 @@ async function updateMyProfile(req, res) {
 
 
     // ========================================================================
-    // LOGS TEMPORALES
+    // LOGS
     // ========================================================================
 
     console.log(
@@ -348,11 +458,11 @@ async function updateMyProfile(req, res) {
     );
 
     console.log(
-      "PERFIL GUARDADO"
+      "PERFIL GUARDADO Y SINCRONIZADO"
     );
 
     console.log(
-      "UID Authentication:",
+      "UID:",
       uid
     );
 
@@ -362,8 +472,13 @@ async function updateMyProfile(req, res) {
     );
 
     console.log(
-      "Documento Firestore:",
+      "Usuario:",
       `usuarios/${uid}`
+    );
+
+    console.log(
+      "Directorio:",
+      `directorio_pacientes/${uid}`
     );
 
     console.log(
@@ -422,19 +537,19 @@ async function updateMyProfile(req, res) {
 //
 // Elimina:
 //
-// 1. El documento usuarios/{uid}
+// 1. usuarios/{uid}
 //
-// 2. Todas las subcolecciones del usuario.
+// 2. Todas las subcolecciones:
 //
-// Por ejemplo:
+//    medicamentos
+//    laboratorios
+//    registros
+//    adherenciaMedicamentos
+//    etc.
 //
-// usuarios/{uid}/medicamentos/*
+// 3. directorio_pacientes/{uid}
 //
-// y cualquier otra subcolección que agreguemos después.
-//
-// 3. El usuario de Firebase Authentication.
-//
-// El UID se obtiene directamente del token.
+// 4. Firebase Authentication.
 //
 // ============================================================================
 
@@ -444,7 +559,7 @@ async function deleteMyAccount(req, res) {
 
 
     // ========================================================================
-    // UID DEL USUARIO AUTENTICADO
+    // UID DEL USUARIO
     // ========================================================================
 
     const uid =
@@ -479,29 +594,29 @@ async function deleteMyAccount(req, res) {
 
 
     // ========================================================================
-    // ELIMINAR FIRESTORE DE FORMA RECURSIVA
+    // REFERENCIA DEL DIRECTORIO
     // ========================================================================
-    //
-    // IMPORTANTE:
-    //
-    // Firestore NO elimina automáticamente las subcolecciones
-    // cuando borramos un documento.
-    //
-    // Por eso utilizamos recursiveDelete().
-    //
-    // Esto eliminará:
-    //
-    // usuarios/{uid}
-    //
-    // usuarios/{uid}/medicamentos/*
-    //
-    // usuarios/{uid}/cualquierOtraSubcoleccion/*
-    //
+
+    const directorioRef =
+      db
+        .collection("directorio_pacientes")
+        .doc(uid);
+
+
+    // ========================================================================
+    // ELIMINAR USUARIO Y SUBCOLECCIONES
     // ========================================================================
 
     await db.recursiveDelete(
       usuarioRef
     );
+
+
+    // ========================================================================
+    // ELIMINAR DEL DIRECTORIO DE PACIENTES
+    // ========================================================================
+
+    await directorioRef.delete();
 
 
     // ========================================================================
@@ -528,6 +643,16 @@ async function deleteMyAccount(req, res) {
     console.log(
       "UID:",
       uid
+    );
+
+    console.log(
+      "Usuario eliminado:",
+      `usuarios/${uid}`
+    );
+
+    console.log(
+      "Directorio eliminado:",
+      `directorio_pacientes/${uid}`
     );
 
     console.log(
