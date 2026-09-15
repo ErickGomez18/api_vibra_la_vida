@@ -1,0 +1,17 @@
+// ============================================================================
+// CAMBIO EN app.js
+// ============================================================================
+//
+// 1. Agrega junto a los demás imports:
+//
+// const adherenciaMedicamentosRoutes =
+//   require("./routes/adherenciaMedicamentos.routes");
+//
+// 2. Agrega ANTES de la ruta 404:
+//
+// app.use(
+//   "/api/adherencia-medicamentos",
+//   adherenciaMedicamentosRoutes
+// );
+//
+// ============================================================================
