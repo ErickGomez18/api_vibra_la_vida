@@ -1,46 +1,137 @@
-// Importamos Express.
-const express = require("express");
+// ============================================================================
+// HEALTH ROUTES
+// ============================================================================
 
-// Importamos controladores.
+
+// ============================================================================
+// EXPRESS
+// ============================================================================
+
+const express =
+  require("express");
+
+
+// ============================================================================
+// CONTROLADORES
+// ============================================================================
+
 const {
+
   syncHealthData,
+
   getLatestHealthData,
+
   getHealthHistory,
+
   deleteHealthRecord,
-} = require("../controllers/health.controller");
 
-// Importamos middleware de autenticación.
-const { verifyFirebaseToken } = require("../middlewares/auth.middleware");
+} =
+  require(
+    "../controllers/health.controller"
+  );
 
-// Creamos el router.
-const router = express.Router();
 
-/**
- * Guardar datos de Health Connect.
- *
- * POST /api/health-connect/sync
- */
-router.post("/sync", verifyFirebaseToken, syncHealthData);
+// ============================================================================
+// AUTENTICACIÓN
+// ============================================================================
 
-/**
- * Obtener último registro.
- *
- * GET /api/health-connect/latest
- */
-router.get("/latest", verifyFirebaseToken, getLatestHealthData);
+const {
+  verifyFirebaseToken,
+} =
+  require(
+    "../middlewares/auth.middleware"
+  );
 
-/**
- * Obtener historial.
- *
- * GET /api/health-connect/history
- */
-router.get("/history", verifyFirebaseToken, getHealthHistory);
 
-/**
- * Eliminar registro.
- *
- * DELETE /api/health-connect/:id
- */
-router.delete("/:id", verifyFirebaseToken, deleteHealthRecord);
+// ============================================================================
+// ROUTER
+// ============================================================================
 
-module.exports = router;
+const router =
+  express.Router();
+
+
+// ============================================================================
+// SINCRONIZAR DATOS
+// ============================================================================
+//
+// POST /api/health-connect/sync
+//
+// Guarda o actualiza el resumen diario.
+//
+// ============================================================================
+
+router.post(
+
+  "/sync",
+
+  verifyFirebaseToken,
+
+  syncHealthData
+);
+
+
+// ============================================================================
+// ÚLTIMO REGISTRO
+// ============================================================================
+//
+// GET /api/health-connect/latest
+//
+// ============================================================================
+
+router.get(
+
+  "/latest",
+
+  verifyFirebaseToken,
+
+  getLatestHealthData
+);
+
+
+// ============================================================================
+// HISTORIAL
+// ============================================================================
+//
+// GET /api/health-connect/history
+//
+// Opcional:
+//
+// GET /api/health-connect/history?limit=30
+//
+// ============================================================================
+
+router.get(
+
+  "/history",
+
+  verifyFirebaseToken,
+
+  getHealthHistory
+);
+
+
+// ============================================================================
+// ELIMINAR REGISTRO
+// ============================================================================
+//
+// DELETE /api/health-connect/:id
+//
+// ============================================================================
+
+router.delete(
+
+  "/:id",
+
+  verifyFirebaseToken,
+
+  deleteHealthRecord
+);
+
+
+// ============================================================================
+// EXPORTAR
+// ============================================================================
+
+module.exports =
+  router;

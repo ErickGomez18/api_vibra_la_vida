@@ -8,6 +8,16 @@ const {
 } = require('../config/firebase')
 
 
+const {
+  normalizarRoles,
+} = require('../utils/roles.utils')
+
+
+const {
+  tieneRelacionActiva,
+} = require('../utils/accesoPaciente.utils')
+
+
 // ----------------------------------------------------------
 // OBTENER USUARIO AUTENTICADO DESDE FIRESTORE
 // ----------------------------------------------------------
@@ -32,7 +42,16 @@ const obtenerUsuarioActual = async (uid) => {
 // ----------------------------------------------------------
 
 const esProfesionalSalud = (usuario) => {
+
+  const roles =
+    normalizarRoles(
+      usuario?.roles,
+      usuario?.rol
+    )
+
+
   return (
+    roles.includes('especialista') ||
     usuario?.rol === 'profesional_salud' ||
     usuario?.rol === 'doctor'
   )
@@ -153,6 +172,34 @@ const crearCita = async (req, res) => {
         message: 'No se encontró el paciente seleccionado.',
       })
     }
+
+
+    // ------------------------------------------------------
+    // VALIDAR RELACIÓN ACTIVA
+    // ------------------------------------------------------
+    //
+    // El especialista no puede crear una cita para cualquier
+    // UID arbitrario.
+    //
+    // El paciente debe haber aceptado previamente la relación.
+    // ------------------------------------------------------
+
+    const relacionActiva =
+      await tieneRelacionActiva(
+        uid,
+        pacienteUid
+      )
+
+
+    if (!relacionActiva) {
+      return res.status(403).json({
+        success: false,
+        code: 'RELACION_NO_ACTIVA',
+        message:
+          'No puedes crear una cita porque no existe una relación activa con este paciente.',
+      })
+    }
+
 
     const citaRef = db.collection('citas').doc()
 

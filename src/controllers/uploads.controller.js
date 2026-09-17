@@ -19,19 +19,22 @@ const cloudinary =
 //
 // POST /api/uploads/signature
 //
-// Requiere usuario autenticado.
+// Opcional:
 //
-// La app recibe:
+// POST /api/uploads/signature?tipo=perfil
+// POST /api/uploads/signature?tipo=laboratorio
 //
-// - timestamp
-// - signature
-// - apiKey
-// - cloudName
-// - folder
+// Carpetas:
+//
+// perfil      -> perfiles/{uid}
+// laboratorio -> laboratorios/{uid}
 //
 // ============================================================================
 
-async function generateUploadSignature(req, res) {
+async function generateUploadSignature(
+  req,
+  res
+) {
 
   try {
 
@@ -44,16 +47,59 @@ async function generateUploadSignature(req, res) {
       req.user?.uid;
 
 
-    if (!uid) {
+    if (
+      !uid
+    ) {
 
-      return res.status(401).json({
+      return res
+        .status(401)
+        .json({
 
-        success: false,
+          success:
+            false,
 
-        message:
-          "Usuario no autenticado.",
+          message:
+            "Usuario no autenticado.",
+        });
+    }
 
-      });
+
+    // ========================================================================
+    // TIPO DE ARCHIVO
+    // ========================================================================
+
+    const tipo =
+      String(
+        req.query?.tipo ||
+        "laboratorio"
+      )
+        .trim()
+        .toLowerCase();
+
+
+    const tiposPermitidos =
+      [
+        "laboratorio",
+        "perfil",
+      ];
+
+
+    if (
+      !tiposPermitidos.includes(
+        tipo
+      )
+    ) {
+
+      return res
+        .status(400)
+        .json({
+
+          success:
+            false,
+
+          message:
+            "Tipo de archivo no válido.",
+        });
     }
 
 
@@ -68,17 +114,15 @@ async function generateUploadSignature(req, res) {
 
 
     // ========================================================================
-    // CARPETA DEL USUARIO
-    // ========================================================================
-    //
-    // Cada usuario tendrá su propia carpeta:
-    //
-    // laboratorios/{uid}
-    //
+    // CARPETA
     // ========================================================================
 
     const folder =
-      `laboratorios/${uid}`;
+      tipo === "perfil"
+
+        ? `perfiles/${uid}`
+
+        : `laboratorios/${uid}`;
 
 
     // ========================================================================
@@ -98,38 +142,49 @@ async function generateUploadSignature(req, res) {
     // ========================================================================
 
     const signature =
-      cloudinary.utils.api_sign_request(
+      cloudinary
+        .utils
+        .api_sign_request(
 
-        paramsToSign,
+          paramsToSign,
 
-        process.env.CLOUDINARY_API_SECRET
-      );
+          process.env
+            .CLOUDINARY_API_SECRET
+        );
 
 
     // ========================================================================
     // RESPUESTA
     // ========================================================================
 
-    return res.status(200).json({
+    return res
+      .status(200)
+      .json({
 
-      success: true,
+        success:
+          true,
 
-      timestamp,
+        timestamp,
 
-      signature,
+        signature,
 
-      apiKey:
-        process.env.CLOUDINARY_API_KEY,
+        apiKey:
+          process.env
+            .CLOUDINARY_API_KEY,
 
-      cloudName:
-        process.env.CLOUDINARY_CLOUD_NAME,
+        cloudName:
+          process.env
+            .CLOUDINARY_CLOUD_NAME,
 
-      folder,
+        folder,
 
-    });
+        tipo,
+      });
 
 
-  } catch (error) {
+  } catch (
+    error
+  ) {
 
 
     console.error(
@@ -138,17 +193,19 @@ async function generateUploadSignature(req, res) {
     );
 
 
-    return res.status(500).json({
+    return res
+      .status(500)
+      .json({
 
-      success: false,
+        success:
+          false,
 
-      message:
-        "Error al generar firma de Cloudinary.",
+        message:
+          "Error al generar firma de Cloudinary.",
 
-      error:
-        error.message,
-
-    });
+        error:
+          error.message,
+      });
   }
 }
 
@@ -160,5 +217,4 @@ async function generateUploadSignature(req, res) {
 module.exports = {
 
   generateUploadSignature,
-
 };

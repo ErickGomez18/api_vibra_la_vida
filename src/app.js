@@ -81,6 +81,12 @@ const citasPacienteRoutes =
   require("./routes/citasPaciente.routes");
 
 
+
+// Relación segura entre especialistas y pacientes.
+const especialistaPacientesRoutes =
+  require("./routes/especialistaPacientes.routes");
+
+
 // ============================================================================
 // CREAR APLICACIÓN EXPRESS
 // ============================================================================
@@ -354,6 +360,26 @@ app.use(
 app.use(
   "/api/citas",
   citasPacienteRoutes
+);
+
+
+
+// ---------------------------------------------------------------------------
+// RELACIÓN ESPECIALISTA - PACIENTE
+// ---------------------------------------------------------------------------
+//
+// Flujo seguro:
+//
+// 1. Especialista envía solicitud.
+// 2. Paciente acepta o rechaza.
+// 3. Solo las relaciones "activas" permitirán acceso posterior
+//    a datos de salud.
+//
+// ---------------------------------------------------------------------------
+
+app.use(
+  "/api/especialista-pacientes",
+  especialistaPacientesRoutes
 );
 
 

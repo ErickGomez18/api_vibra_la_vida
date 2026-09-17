@@ -253,6 +253,8 @@ async function updateMyProfile(
 
       otraEnfermedadCronica,
 
+      fotoPerfilUrl,
+
     } = body;
 
 
@@ -399,6 +401,116 @@ async function updateMyProfile(
 
 
     // ========================================================================
+    // FOTO DE PERFIL
+    // ========================================================================
+    //
+    // Si el campo NO viene en el request:
+    // conservamos la foto existente.
+    //
+    // Si viene:
+    // solamente aceptamos HTTPS de Cloudinary.
+    //
+    // ========================================================================
+
+    let fotoPerfilFinal =
+      datosExistentes.fotoPerfilUrl ??
+      null;
+
+
+    if (
+      fotoPerfilUrl !== undefined &&
+      fotoPerfilUrl !== null
+    ) {
+
+      if (
+        typeof fotoPerfilUrl !==
+        "string"
+      ) {
+
+        return res
+          .status(400)
+          .json({
+
+            success:
+              false,
+
+            message:
+              "La URL de la foto de perfil no es válida.",
+          });
+      }
+
+
+      const fotoLimpia =
+        fotoPerfilUrl.trim();
+
+
+      if (
+        fotoLimpia.length >
+        2048
+      ) {
+
+        return res
+          .status(400)
+          .json({
+
+            success:
+              false,
+
+            message:
+              "La URL de la foto de perfil es demasiado larga.",
+          });
+      }
+
+
+      try {
+
+        const fotoUrl =
+          new URL(
+            fotoLimpia
+          );
+
+
+        if (
+          fotoUrl.protocol !==
+          "https:" ||
+          fotoUrl.hostname !==
+          "res.cloudinary.com"
+        ) {
+
+          return res
+            .status(400)
+            .json({
+
+              success:
+                false,
+
+              message:
+                "La foto de perfil debe provenir de Cloudinary.",
+            });
+        }
+
+
+        fotoPerfilFinal =
+          fotoLimpia;
+
+
+      } catch (_) {
+
+        return res
+          .status(400)
+          .json({
+
+            success:
+              false,
+
+            message:
+              "La URL de la foto de perfil no es válida.",
+          });
+      }
+    }
+
+
+    // ========================================================================
     // DATOS DEL USUARIO
     // ========================================================================
 
@@ -473,6 +585,14 @@ async function updateMyProfile(
         otraEnfermedadCronica ??
         datosExistentes.otraEnfermedadCronica ??
         "",
+
+
+      // ----------------------------------------------------------------------
+      // FOTO DE PERFIL
+      // ----------------------------------------------------------------------
+
+      fotoPerfilUrl:
+        fotoPerfilFinal,
 
 
       // ----------------------------------------------------------------------
