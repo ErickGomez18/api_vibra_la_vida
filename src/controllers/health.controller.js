@@ -893,6 +893,528 @@ async function deleteHealthRecord(
 }
 
 
+
+
+// ============================================================================
+// ACCESO DEL PROFESIONAL A HEALTH CONNECT DEL PACIENTE
+// ============================================================================
+//
+// Estas funciones permiten que el panel profesional consulte Health Connect
+// de un paciente SIN leer directamente la subcolección desde Vue.
+//
+// Se valida:
+//
+// 1. Que el usuario autenticado sea profesional.
+// 2. Que exista un vínculo ACTIVO en seguimiento_profesional.
+// 3. Solo entonces se leen los datos del paciente.
+//
+// Esto conserva el sistema que YA utiliza la web:
+//
+// seguimiento_profesional
+//
+// y NO introduce todavía relaciones_especialista_paciente.
+//
+// ============================================================================
+
+
+// ============================================================================
+// COMPROBAR SI EL USUARIO ES PROFESIONAL
+// ============================================================================
+
+async function validarProfesionalActual(
+  profesionalUid
+) {
+
+  const profesionalDoc =
+    await db
+      .collection("usuarios")
+      .doc(profesionalUid)
+      .get();
+
+
+  if (!profesionalDoc.exists) {
+
+    return {
+      autorizado: false,
+      status: 404,
+      message:
+        "No se encontró el perfil profesional.",
+    };
+  }
+
+
+  const profesional =
+    profesionalDoc.data();
+
+
+  const rol =
+    String(
+      profesional.rol || ""
+    )
+      .trim()
+      .toLowerCase();
+
+
+  const roles =
+    Array.isArray(
+      profesional.roles
+    )
+      ? profesional.roles.map(
+          (item) =>
+            String(item)
+              .trim()
+              .toLowerCase()
+        )
+      : [];
+
+
+  const esProfesional =
+    rol === "profesional_salud" ||
+    rol === "doctor" ||
+    rol === "especialista" ||
+    roles.includes("especialista");
+
+
+  if (!esProfesional) {
+
+    return {
+      autorizado: false,
+      status: 403,
+      message:
+        "Esta acción requiere una cuenta profesional.",
+    };
+  }
+
+
+  return {
+    autorizado: true,
+    profesional,
+  };
+}
+
+
+// ============================================================================
+// VALIDAR VÍNCULO ACTIVO
+// ============================================================================
+
+async function validarVinculoProfesionalPaciente(
+  profesionalUid,
+  pacienteUid
+) {
+
+  const profesional =
+    await validarProfesionalActual(
+      profesionalUid
+    );
+
+
+  if (!profesional.autorizado) {
+
+    return profesional;
+  }
+
+
+  const pacienteDoc =
+    await db
+      .collection("usuarios")
+      .doc(pacienteUid)
+      .get();
+
+
+  if (!pacienteDoc.exists) {
+
+    return {
+      autorizado: false,
+      status: 404,
+      message:
+        "No se encontró el paciente.",
+    };
+  }
+
+
+  // --------------------------------------------------------------------------
+  // Buscamos todos los vínculos del profesional.
+  //
+  // Filtramos pacienteUid + estado en Node para evitar depender
+  // de un índice compuesto nuevo en Firestore.
+  // --------------------------------------------------------------------------
+
+  const vinculosSnapshot =
+    await db
+      .collection(
+        "seguimiento_profesional"
+      )
+      .where(
+        "profesionalUid",
+        "==",
+        profesionalUid
+      )
+      .get();
+
+
+  const vinculoActivo =
+    vinculosSnapshot.docs.some(
+      (documento) => {
+
+        const vinculo =
+          documento.data();
+
+
+        return (
+          vinculo.pacienteUid ===
+            pacienteUid &&
+          vinculo.estado ===
+            "activo"
+        );
+      }
+    );
+
+
+  if (!vinculoActivo) {
+
+    return {
+      autorizado: false,
+      status: 403,
+      code:
+        "VINCULO_NO_ACTIVO",
+      message:
+        "No tienes un vínculo activo con este paciente.",
+    };
+  }
+
+
+  return {
+    autorizado: true,
+    paciente: {
+      id:
+        pacienteDoc.id,
+      ...pacienteDoc.data(),
+    },
+  };
+}
+
+
+// ============================================================================
+// OBTENER ÚLTIMO HEALTH CONNECT DE UN PACIENTE
+// ============================================================================
+//
+// GET /api/health-connect/paciente/:pacienteUid/latest
+//
+// Solo profesional con vínculo activo.
+//
+// ============================================================================
+
+async function getLatestPatientHealthData(
+  req,
+  res
+) {
+
+  try {
+
+    const profesionalUid =
+      req.user?.uid;
+
+
+    const pacienteUid =
+      String(
+        req.params?.pacienteUid ||
+        ""
+      ).trim();
+
+
+    if (!profesionalUid) {
+
+      return res
+        .status(401)
+        .json({
+
+          success: false,
+
+          message:
+            "No se pudo identificar al usuario autenticado.",
+        });
+    }
+
+
+    if (!pacienteUid) {
+
+      return res
+        .status(400)
+        .json({
+
+          success: false,
+
+          message:
+            "El paciente es obligatorio.",
+        });
+    }
+
+
+    const acceso =
+      await validarVinculoProfesionalPaciente(
+        profesionalUid,
+        pacienteUid
+      );
+
+
+    if (!acceso.autorizado) {
+
+      return res
+        .status(
+          acceso.status
+        )
+        .json({
+
+          success: false,
+
+          code:
+            acceso.code || null,
+
+          message:
+            acceso.message,
+        });
+    }
+
+
+    const snapshot =
+      await db
+        .collection("usuarios")
+        .doc(pacienteUid)
+        .collection("health_connect")
+        .orderBy(
+          "fechaSincronizacion",
+          "desc"
+        )
+        .limit(1)
+        .get();
+
+
+    if (snapshot.empty) {
+
+      return res.json({
+
+        success: true,
+
+        pacienteUid,
+
+        data: null,
+
+        message:
+          "El paciente todavía no tiene datos de Health Connect sincronizados.",
+      });
+    }
+
+
+    const documento =
+      snapshot.docs[0];
+
+
+    return res.json({
+
+      success: true,
+
+      pacienteUid,
+
+      data: {
+
+        id:
+          documento.id,
+
+        ...documento.data(),
+      },
+    });
+
+
+  } catch (error) {
+
+    console.error(
+      "Error en getLatestPatientHealthData:",
+      error
+    );
+
+
+    return res
+      .status(500)
+      .json({
+
+        success: false,
+
+        message:
+          "Error al obtener Health Connect del paciente.",
+
+        error:
+          error.message,
+      });
+  }
+}
+
+
+// ============================================================================
+// HISTORIAL DE HEALTH CONNECT DE UN PACIENTE
+// ============================================================================
+//
+// GET /api/health-connect/paciente/:pacienteUid/history?limit=30
+//
+// Solo profesional con vínculo activo.
+//
+// ============================================================================
+
+async function getPatientHealthHistory(
+  req,
+  res
+) {
+
+  try {
+
+    const profesionalUid =
+      req.user?.uid;
+
+
+    const pacienteUid =
+      String(
+        req.params?.pacienteUid ||
+        ""
+      ).trim();
+
+
+    if (!profesionalUid) {
+
+      return res
+        .status(401)
+        .json({
+
+          success: false,
+
+          message:
+            "No se pudo identificar al usuario autenticado.",
+        });
+    }
+
+
+    if (!pacienteUid) {
+
+      return res
+        .status(400)
+        .json({
+
+          success: false,
+
+          message:
+            "El paciente es obligatorio.",
+        });
+    }
+
+
+    const acceso =
+      await validarVinculoProfesionalPaciente(
+        profesionalUid,
+        pacienteUid
+      );
+
+
+    if (!acceso.autorizado) {
+
+      return res
+        .status(
+          acceso.status
+        )
+        .json({
+
+          success: false,
+
+          code:
+            acceso.code || null,
+
+          message:
+            acceso.message,
+        });
+    }
+
+
+    const limiteSolicitado =
+      Number(
+        req.query.limit
+      );
+
+
+    const limite =
+      Number.isFinite(
+        limiteSolicitado
+      ) &&
+      limiteSolicitado > 0
+
+        ? Math.min(
+            Math.trunc(
+              limiteSolicitado
+            ),
+            90
+          )
+
+        : 30;
+
+
+    const snapshot =
+      await db
+        .collection("usuarios")
+        .doc(pacienteUid)
+        .collection("health_connect")
+        .orderBy(
+          "fechaSincronizacion",
+          "desc"
+        )
+        .limit(limite)
+        .get();
+
+
+    const history =
+      snapshot.docs.map(
+        (documento) => ({
+
+          id:
+            documento.id,
+
+          ...documento.data(),
+        })
+      );
+
+
+    return res.json({
+
+      success: true,
+
+      pacienteUid,
+
+      count:
+        history.length,
+
+      history,
+    });
+
+
+  } catch (error) {
+
+    console.error(
+      "Error en getPatientHealthHistory:",
+      error
+    );
+
+
+    return res
+      .status(500)
+      .json({
+
+        success: false,
+
+        message:
+          "Error al obtener el historial de Health Connect del paciente.",
+
+        error:
+          error.message,
+      });
+  }
+}
+
+
 // ============================================================================
 // EXPORTACIONES
 // ============================================================================
@@ -906,4 +1428,8 @@ module.exports = {
   getHealthHistory,
 
   deleteHealthRecord,
+
+  getLatestPatientHealthData,
+
+  getPatientHealthHistory,
 };
