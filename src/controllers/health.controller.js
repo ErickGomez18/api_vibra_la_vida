@@ -1,22 +1,27 @@
 // ============================================================================
-// HEALTH CONTROLLER
+// HEALTH CONTROLLER - VIBRA LA VIDA
 // ============================================================================
 //
-// Maneja la sincronización de datos provenientes de Health Connect.
+// INTEGRACIÓN SEGURA:
 //
-// ESTRUCTURA EN FIRESTORE:
+// Reloj / Health Connect
+//          ↓
+// App Android
+//          ↓
+// POST /api/health-connect/sync
+//          ↓
+// API Express en Render
+//          ↓
+// Firestore
+//
+// ESTRUCTURA:
 //
 // usuarios/{uid}/health_connect/{YYYY-MM-DD}
 //
-// Utilizamos un documento por día para evitar crear un registro nuevo
-// cada vez que la app actualiza los datos.
+// Se utiliza UN documento por día.
 //
-// Esto permite que:
-//
-// - los pasos del día se actualicen;
-// - la frecuencia cardíaca se actualice;
-// - el resumen de sueño se actualice;
-// - no se creen cientos de documentos por usuario.
+// Así, si durante el mismo día Android vuelve a sincronizar,
+// el documento se actualiza en lugar de crear cientos de registros.
 //
 // ============================================================================
 
@@ -36,9 +41,29 @@ const {
 // ============================================================================
 
 /**
- * Convierte un valor a número cuando sea posible.
+ * Indica si una propiedad realmente llegó en el body.
  *
- * Si el valor no existe o no es válido,
+ * Esto es importante porque no queremos borrar datos anteriores
+ * cuando Android realiza una actualización parcial.
+ */
+function tieneCampo(
+  objeto,
+  campo
+) {
+
+  return Object.prototype.hasOwnProperty.call(
+    objeto,
+    campo
+  );
+}
+
+
+/**
+ * Convierte a número.
+ *
+ * null / undefined / "" -> null
+ *
+ * Si recibe algo que no puede convertirse a número,
  * regresa null.
  */
 function numeroONull(
@@ -60,9 +85,7 @@ function numeroONull(
 
 
   if (
-    !Number.isFinite(
-      numero
-    )
+    !Number.isFinite(numero)
   ) {
 
     return null;
@@ -74,17 +97,16 @@ function numeroONull(
 
 
 /**
- * Limpia una fecha con formato:
+ * Obtiene la fecha que será utilizada como ID del documento.
+ *
+ * Formato esperado:
  *
  * YYYY-MM-DD
  *
- * Si no es válida,
- * utiliza la fecha actual del servidor.
+ * Android ya envía esta fecha en HealthConnectSyncRequest.
  *
- * IMPORTANTE:
- *
- * Lo ideal es que Android envíe la fecha local del usuario
- * para evitar diferencias por zona horaria.
+ * Si por compatibilidad con una versión anterior no llega la fecha,
+ * utilizamos la fecha actual del servidor.
  */
 function obtenerFechaDocumento(
   fecha
@@ -110,32 +132,54 @@ function obtenerFechaDocumento(
 }
 
 
+/**
+ * Limpia un texto opcional.
+ */
+function textoONull(
+  valor
+) {
+
+  if (
+    valor === null ||
+    valor === undefined
+  ) {
+
+    return null;
+  }
+
+
+  const texto =
+    String(valor).trim();
+
+
+  return texto || null;
+}
+
+
 // ============================================================================
 // SINCRONIZAR HEALTH CONNECT
 // ============================================================================
 //
 // POST /api/health-connect/sync
 //
-// La app Android puede enviar:
+// Ejemplo:
 //
 // {
-//   "fecha": "2026-09-17",
+//   "fecha": "2026-09-18",
 //   "pasos": 5320,
-//
 //   "frecuenciaCardiaca": 76,
 //   "frecuenciaCardiacaMinima": 58,
 //   "frecuenciaCardiacaMaxima": 121,
 //   "cantidadMedicionesFrecuenciaCardiaca": 42,
-//
 //   "suenoMinutos": 438,
-//   "inicioSueno": "2026-09-16T23:20:00Z",
-//   "finSueno": "2026-09-17T06:38:00Z",
+//   "inicioSueno": "2026-09-17T23:20:00Z",
+//   "finSueno": "2026-09-18T06:38:00Z",
 //   "suenoLigeroMinutos": 250,
 //   "suenoProfundoMinutos": 120,
 //   "suenoRemMinutos": 68,
 //   "despiertoMinutos": 15,
-//
-//   "fuente": "Mi Fitness / Health Connect"
+//   "fuente": "Mi Fitness / Health Connect",
+//   "fechaLectura": "2026-09-18T08:00:00Z"
 // }
 //
 // ============================================================================
@@ -148,23 +192,20 @@ async function syncHealthData(
   try {
 
     // ========================================================================
-    // USUARIO
+    // 1. USUARIO AUTENTICADO
     // ========================================================================
 
     const uid =
       req.user?.uid;
 
 
-    if (
-      !uid
-    ) {
+    if (!uid) {
 
       return res
         .status(401)
         .json({
 
-          success:
-            false,
+          success: false,
 
           message:
             "No se pudo identificar al usuario autenticado.",
@@ -173,7 +214,7 @@ async function syncHealthData(
 
 
     // ========================================================================
-    // BODY
+    // 2. BODY
     // ========================================================================
 
     const body =
@@ -187,135 +228,103 @@ async function syncHealthData(
 
 
     // ========================================================================
-    // NORMALIZAR DATOS
+    // 3. CAMPOS NUMÉRICOS SOPORTADOS
     // ========================================================================
 
-    const pasos =
-      numeroONull(
-        body.pasos
-      );
+    const camposNumericos = [
 
+      "pasos",
 
-    const frecuenciaCardiaca =
-      numeroONull(
-        body.frecuenciaCardiaca
-      );
+      "frecuenciaCardiaca",
 
+      "frecuenciaCardiacaMinima",
 
-    const frecuenciaCardiacaMinima =
-      numeroONull(
-        body.frecuenciaCardiacaMinima
-      );
+      "frecuenciaCardiacaMaxima",
 
+      "cantidadMedicionesFrecuenciaCardiaca",
 
-    const frecuenciaCardiacaMaxima =
-      numeroONull(
-        body.frecuenciaCardiacaMaxima
-      );
+      "suenoMinutos",
 
+      "suenoLigeroMinutos",
 
-    const cantidadMedicionesFrecuenciaCardiaca =
-      numeroONull(
-        body.cantidadMedicionesFrecuenciaCardiaca
-      );
+      "suenoProfundoMinutos",
 
+      "suenoRemMinutos",
 
-    const suenoMinutos =
-      numeroONull(
-        body.suenoMinutos
-      );
-
-
-    const suenoLigeroMinutos =
-      numeroONull(
-        body.suenoLigeroMinutos
-      );
-
-
-    const suenoProfundoMinutos =
-      numeroONull(
-        body.suenoProfundoMinutos
-      );
-
-
-    const suenoRemMinutos =
-      numeroONull(
-        body.suenoRemMinutos
-      );
-
-
-    const despiertoMinutos =
-      numeroONull(
-        body.despiertoMinutos
-      );
-
-
-    // ========================================================================
-    // VALIDACIONES BÁSICAS
-    // ========================================================================
-
-    const valoresNoNegativos = [
-
-      pasos,
-
-      frecuenciaCardiaca,
-
-      frecuenciaCardiacaMinima,
-
-      frecuenciaCardiacaMaxima,
-
-      cantidadMedicionesFrecuenciaCardiaca,
-
-      suenoMinutos,
-
-      suenoLigeroMinutos,
-
-      suenoProfundoMinutos,
-
-      suenoRemMinutos,
-
-      despiertoMinutos,
+      "despiertoMinutos",
     ];
 
 
-    const existeValorNegativo =
-      valoresNoNegativos.some(
-        (valor) =>
-          valor !== null &&
-          valor < 0
-      );
+    // ========================================================================
+    // 4. VALIDAR LOS NÚMEROS QUE SÍ LLEGARON
+    // ========================================================================
 
-
-    if (
-      existeValorNegativo
+    for (
+      const campo of camposNumericos
     ) {
 
-      return res
-        .status(400)
-        .json({
+      if (
+        !tieneCampo(
+          body,
+          campo
+        )
+      ) {
 
-          success:
-            false,
+        continue;
+      }
 
-          message:
-            "Los valores de salud no pueden ser negativos.",
-        });
+
+      const valorOriginal =
+        body[campo];
+
+
+      const valor =
+        numeroONull(
+          valorOriginal
+        );
+
+
+      // Si el cliente mandó un valor no vacío pero no es numérico.
+      if (
+        valorOriginal !== null &&
+        valorOriginal !== undefined &&
+        valorOriginal !== "" &&
+        valor === null
+      ) {
+
+        return res
+          .status(400)
+          .json({
+
+            success: false,
+
+            message:
+              `El campo ${campo} debe ser numérico.`,
+          });
+      }
+
+
+      // Las métricas que manejamos aquí no pueden ser negativas.
+      if (
+        valor !== null &&
+        valor < 0
+      ) {
+
+        return res
+          .status(400)
+          .json({
+
+            success: false,
+
+            message:
+              `El campo ${campo} no puede ser negativo.`,
+          });
+      }
     }
 
 
     // ========================================================================
-    // FUENTE
-    // ========================================================================
-
-    const fuente =
-      typeof body.fuente === "string" &&
-      body.fuente.trim()
-        ? body.fuente.trim()
-        : "Health Connect";
-
-
-    // ========================================================================
-    // DOCUMENTO DIARIO
+    // 5. DOCUMENTO DIARIO
     // ========================================================================
 
     const healthRef =
@@ -331,7 +340,20 @@ async function syncHealthData(
 
 
     // ========================================================================
-    // DATOS A GUARDAR
+    // 6. DATOS BASE
+    // ========================================================================
+    //
+    // Solamente agregamos al objeto los campos que Android realmente mandó.
+    //
+    // De esta manera:
+    //
+    // Primera sincronización:
+    // pasos = 5000
+    //
+    // Segunda sincronización:
+    // frecuenciaCardiaca = 75
+    //
+    // NO borra pasos.
     // ========================================================================
 
     const datos = {
@@ -339,62 +361,6 @@ async function syncHealthData(
       uid,
 
       fecha,
-
-
-      // ----------------------------------------------------------------------
-      // ACTIVIDAD FÍSICA
-      // ----------------------------------------------------------------------
-
-      pasos,
-
-
-      // ----------------------------------------------------------------------
-      // FRECUENCIA CARDÍACA
-      // ----------------------------------------------------------------------
-
-      frecuenciaCardiaca,
-
-      frecuenciaCardiacaMinima,
-
-      frecuenciaCardiacaMaxima,
-
-      cantidadMedicionesFrecuenciaCardiaca,
-
-
-      // ----------------------------------------------------------------------
-      // SUEÑO
-      // ----------------------------------------------------------------------
-
-      suenoMinutos,
-
-      inicioSueno:
-        body.inicioSueno ?? null,
-
-      finSueno:
-        body.finSueno ?? null,
-
-      suenoLigeroMinutos,
-
-      suenoProfundoMinutos,
-
-      suenoRemMinutos,
-
-      despiertoMinutos,
-
-
-      // ----------------------------------------------------------------------
-      // ORIGEN
-      // ----------------------------------------------------------------------
-
-      fuente,
-
-
-      // ----------------------------------------------------------------------
-      // FECHAS DE CONTROL
-      // ----------------------------------------------------------------------
-
-      fechaLectura:
-        body.fechaLectura ?? null,
 
       fechaSincronizacion:
         FieldValue.serverTimestamp(),
@@ -404,7 +370,109 @@ async function syncHealthData(
     };
 
 
-    // Fecha de creación únicamente la primera vez.
+    // ========================================================================
+    // 7. AGREGAR CAMPOS NUMÉRICOS PRESENTES
+    // ========================================================================
+
+    for (
+      const campo of camposNumericos
+    ) {
+
+      if (
+        tieneCampo(
+          body,
+          campo
+        )
+      ) {
+
+        datos[campo] =
+          numeroONull(
+            body[campo]
+          );
+      }
+    }
+
+
+    // ========================================================================
+    // 8. SUEÑO - HORAS DE INICIO / FIN
+    // ========================================================================
+
+    if (
+      tieneCampo(
+        body,
+        "inicioSueno"
+      )
+    ) {
+
+      datos.inicioSueno =
+        textoONull(
+          body.inicioSueno
+        );
+    }
+
+
+    if (
+      tieneCampo(
+        body,
+        "finSueno"
+      )
+    ) {
+
+      datos.finSueno =
+        textoONull(
+          body.finSueno
+        );
+    }
+
+
+    // ========================================================================
+    // 9. FUENTE
+    // ========================================================================
+
+    if (
+      tieneCampo(
+        body,
+        "fuente"
+      )
+    ) {
+
+      datos.fuente =
+        textoONull(
+          body.fuente
+        ) ||
+        "Health Connect";
+
+    } else if (
+      !healthDoc.exists
+    ) {
+
+      datos.fuente =
+        "Health Connect";
+    }
+
+
+    // ========================================================================
+    // 10. FECHA DE LECTURA
+    // ========================================================================
+
+    if (
+      tieneCampo(
+        body,
+        "fechaLectura"
+      )
+    ) {
+
+      datos.fechaLectura =
+        textoONull(
+          body.fechaLectura
+        );
+    }
+
+
+    // ========================================================================
+    // 11. FECHA DE CREACIÓN
+    // ========================================================================
+
     if (
       !healthDoc.exists
     ) {
@@ -415,22 +483,19 @@ async function syncHealthData(
 
 
     // ========================================================================
-    // GUARDAR / ACTUALIZAR
+    // 12. GUARDAR
     // ========================================================================
 
     await healthRef.set(
-
       datos,
-
       {
-        merge:
-          true,
+        merge: true,
       }
     );
 
 
     // ========================================================================
-    // RESPUESTA
+    // 13. RESPUESTA
     // ========================================================================
 
     return res
@@ -441,8 +506,7 @@ async function syncHealthData(
       )
       .json({
 
-        success:
-          true,
+        success: true,
 
         message:
           healthDoc.exists
@@ -456,9 +520,7 @@ async function syncHealthData(
       });
 
 
-  } catch (
-    error
-  ) {
+  } catch (error) {
 
     console.error(
       "Error en syncHealthData:",
@@ -470,8 +532,7 @@ async function syncHealthData(
       .status(500)
       .json({
 
-        success:
-          false,
+        success: false,
 
         message:
           "Error al guardar datos de Health Connect.",
@@ -502,16 +563,13 @@ async function getLatestHealthData(
       req.user?.uid;
 
 
-    if (
-      !uid
-    ) {
+    if (!uid) {
 
       return res
         .status(401)
         .json({
 
-          success:
-            false,
+          success: false,
 
           message:
             "No se pudo identificar al usuario autenticado.",
@@ -538,14 +596,12 @@ async function getLatestHealthData(
 
       return res.json({
 
-        success:
-          true,
+        success: true,
 
         message:
           "No hay datos de Health Connect registrados.",
 
-        data:
-          null,
+        data: null,
       });
     }
 
@@ -556,8 +612,7 @@ async function getLatestHealthData(
 
     return res.json({
 
-      success:
-        true,
+      success: true,
 
       data: {
 
@@ -569,9 +624,7 @@ async function getLatestHealthData(
     });
 
 
-  } catch (
-    error
-  ) {
+  } catch (error) {
 
     console.error(
       "Error en getLatestHealthData:",
@@ -583,8 +636,7 @@ async function getLatestHealthData(
       .status(500)
       .json({
 
-        success:
-          false,
+        success: false,
 
         message:
           "Error al obtener el último registro de Health Connect.",
@@ -597,7 +649,7 @@ async function getLatestHealthData(
 
 
 // ============================================================================
-// HISTORIAL
+// OBTENER HISTORIAL
 // ============================================================================
 //
 // GET /api/health-connect/history
@@ -606,8 +658,7 @@ async function getLatestHealthData(
 //
 // GET /api/health-connect/history?limit=30
 //
-// Máximo:
-// 90 registros.
+// Máximo: 90
 //
 // ============================================================================
 
@@ -622,16 +673,13 @@ async function getHealthHistory(
       req.user?.uid;
 
 
-    if (
-      !uid
-    ) {
+    if (!uid) {
 
       return res
         .status(401)
         .json({
 
-          success:
-            false,
+          success: false,
 
           message:
             "No se pudo identificar al usuario autenticado.",
@@ -688,8 +736,7 @@ async function getHealthHistory(
 
     return res.json({
 
-      success:
-        true,
+      success: true,
 
       count:
         history.length,
@@ -698,9 +745,7 @@ async function getHealthHistory(
     });
 
 
-  } catch (
-    error
-  ) {
+  } catch (error) {
 
     console.error(
       "Error en getHealthHistory:",
@@ -712,8 +757,7 @@ async function getHealthHistory(
       .status(500)
       .json({
 
-        success:
-          false,
+        success: false,
 
         message:
           "Error al obtener historial de Health Connect.",
@@ -726,14 +770,16 @@ async function getHealthHistory(
 
 
 // ============================================================================
-// ELIMINAR REGISTRO
+// ELIMINAR UN REGISTRO
 // ============================================================================
 //
 // DELETE /api/health-connect/:id
 //
-// El id normalmente será:
+// El ID nuevo normalmente será:
 //
 // YYYY-MM-DD
+//
+// También continúa funcionando con IDs antiguos de Firestore.
 //
 // ============================================================================
 
@@ -753,19 +799,32 @@ async function deleteHealthRecord(
     } = req.params;
 
 
-    if (
-      !uid
-    ) {
+    if (!uid) {
 
       return res
         .status(401)
         .json({
 
-          success:
-            false,
+          success: false,
 
           message:
             "No se pudo identificar al usuario autenticado.",
+        });
+    }
+
+
+    if (
+      !id
+    ) {
+
+      return res
+        .status(400)
+        .json({
+
+          success: false,
+
+          message:
+            "No se indicó el registro de Health Connect.",
         });
     }
 
@@ -790,8 +849,7 @@ async function deleteHealthRecord(
         .status(404)
         .json({
 
-          success:
-            false,
+          success: false,
 
           message:
             "Registro de Health Connect no encontrado.",
@@ -804,17 +862,14 @@ async function deleteHealthRecord(
 
     return res.json({
 
-      success:
-        true,
+      success: true,
 
       message:
         "Registro de Health Connect eliminado correctamente.",
     });
 
 
-  } catch (
-    error
-  ) {
+  } catch (error) {
 
     console.error(
       "Error en deleteHealthRecord:",
@@ -826,8 +881,7 @@ async function deleteHealthRecord(
       .status(500)
       .json({
 
-        success:
-          false,
+        success: false,
 
         message:
           "Error al eliminar registro de Health Connect.",
