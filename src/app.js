@@ -65,6 +65,12 @@ const citasRoutes =
   require("./routes/citas.routes");
 
 
+
+// Profesionales visibles en el mapa de consultorios.
+const profesionalesMapaRoutes =
+  require("./routes/profesionalesMapa.routes");
+
+
 // ============================================================================
 // NUEVAS RUTAS
 // ============================================================================
@@ -361,6 +367,24 @@ app.use(
   "/api/citas",
   citasPacienteRoutes
 );
+
+
+
+// ---------------------------------------------------------------------------
+// PROFESIONALES EN MAPA
+// ---------------------------------------------------------------------------
+//
+// GET /api/profesionales/mapa
+//
+// Devuelve profesionales con consultorio y coordenadas válidas.
+//
+// ---------------------------------------------------------------------------
+
+app.use(
+  "/api/profesionales",
+  profesionalesMapaRoutes
+);
+
 
 
 
