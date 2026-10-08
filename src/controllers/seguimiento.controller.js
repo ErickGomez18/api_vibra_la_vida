@@ -204,9 +204,35 @@ const obtenerPerfilPublicoProfesional = async (
         perfil.cedulaVerificada
       ),
 
-    formacionAdicional:
-      perfil.formacionAdicional ||
-      null,
+// ----------------------------------------------------------
+// FORMACIÓN ADICIONAL
+// ----------------------------------------------------------
+//
+// En Firestore puede estar guardada como:
+//
+// ["Curso 1", "Curso 2"]
+//
+// o como:
+//
+// "Curso 1"
+//
+// Para que Web y Android reciban siempre el mismo tipo,
+// convertimos cualquier arreglo en un solo texto.
+// ----------------------------------------------------------
+
+formacionAdicional:
+  Array.isArray(
+    perfil.formacionAdicional
+  )
+    ? perfil.formacionAdicional.join(
+        ", "
+      )
+    : (
+        typeof perfil.formacionAdicional ===
+        "string"
+          ? perfil.formacionAdicional
+          : null
+      ),
 
     tieneConsultorio:
       Boolean(
