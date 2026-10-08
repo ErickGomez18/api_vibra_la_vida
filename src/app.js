@@ -65,7 +65,6 @@ const citasRoutes =
   require("./routes/citas.routes");
 
 
-
 // Profesionales visibles en el mapa de consultorios.
 const profesionalesMapaRoutes =
   require("./routes/profesionalesMapa.routes");
@@ -87,10 +86,25 @@ const citasPacienteRoutes =
   require("./routes/citasPaciente.routes");
 
 
-
 // Relación segura entre especialistas y pacientes.
 const especialistaPacientesRoutes =
   require("./routes/especialistaPacientes.routes");
+
+
+// ============================================================================
+// SEGUIMIENTO PROFESIONAL
+// ============================================================================
+//
+// Flujo:
+// doctor solicita
+// paciente recibe OTP
+// paciente autoriza
+// vínculo pasa a activo
+//
+// ============================================================================
+
+const seguimientoRoutes =
+  require("./routes/seguimiento.routes");
 
 
 // ============================================================================
@@ -369,7 +383,6 @@ app.use(
 );
 
 
-
 // ---------------------------------------------------------------------------
 // PROFESIONALES EN MAPA
 // ---------------------------------------------------------------------------
@@ -384,8 +397,6 @@ app.use(
   "/api/profesionales",
   profesionalesMapaRoutes
 );
-
-
 
 
 // ---------------------------------------------------------------------------
@@ -404,6 +415,25 @@ app.use(
 app.use(
   "/api/especialista-pacientes",
   especialistaPacientesRoutes
+);
+
+
+// ---------------------------------------------------------------------------
+// SEGUIMIENTO PROFESIONAL / EQUIPO DE SALUD
+// ---------------------------------------------------------------------------
+//
+// Endpoints usados por Web y Android:
+//
+// GET  /api/seguimiento/mis-vinculos
+// POST /api/seguimiento/:id/codigo
+// POST /api/seguimiento/:id/autorizar
+// POST /api/seguimiento/:id/rechazar
+//
+// ---------------------------------------------------------------------------
+
+app.use(
+  "/api/seguimiento",
+  seguimientoRoutes
 );
 
 
