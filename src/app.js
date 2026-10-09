@@ -5,6 +5,7 @@
 const express = require('express')
 const cors = require('cors')
 
+const diabetesRoutes = require('./routes/diabetes.routes')
 const authRoutes = require('./routes/auth.routes')
 const userRoutes = require('./routes/user.routes')
 const resultsRoutes = require('./routes/results.routes')
@@ -40,6 +41,7 @@ app.get('/api/status', (req, res) => {
   })
 })
 
+
 app.use('/api/auth', authRoutes)
 app.use('/api/users', userRoutes)
 app.use('/api/results', resultsRoutes)
@@ -53,6 +55,7 @@ app.use('/api/calculadoras', calculadorasRoutes)
 app.use('/api/citas', citasRoutes)
 app.use('/api/seguimiento', seguimientoRoutes)
 app.use('/api/notificaciones', notificacionesRoutes)
+app.use('/api/diabetes', diabetesRoutes)
 
 // Siempre al final.
 app.use((req, res) => {
